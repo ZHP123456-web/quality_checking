@@ -1,5 +1,6 @@
 package com.example.demo.service;
 
+import com.example.demo.bean.CheckRequest;
 import java.util.List;
 import java.util.Map;
 
@@ -8,11 +9,10 @@ public interface BadDataService {
     /**
      * 查询表中不符合规则的数据
      * @param tableName 表名
-     * @param column 检查的列名
-     * @param ruleJson 规则JSON字符串
+     * @param columnRules 列规则列表
      * @return 违规数据列表（包含主键和列值）
      */
-    List<Map<String, Object>> listBadData(String tableName, String column, String ruleJson);
+    List<Map<String, Object>> listBadData(String tableName, List<CheckRequest.ColumnRule> columnRules);
 
     /**
      * 校验表名和列名是否合法

@@ -21,8 +21,6 @@ public class BadDataController {
      */
     @PostMapping("/check")
     public List<Map<String, Object>> check(@Validated @RequestBody CheckRequest req) {
-        return badDataService.listBadData(req.getTableName(),
-                req.getColumn(),
-                req.getRule());
+        return badDataService.listBadData(req.getTableName(), req.getColumnRules());
     }
 }

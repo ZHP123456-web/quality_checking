@@ -1,5 +1,6 @@
 package com.example.demo.service.impl;
 
+import com.example.demo.bean.CheckRequest;
 import com.example.demo.mapper.BadDataMapper;
 import com.example.demo.service.BadDataService;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -14,6 +15,7 @@ import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 public class BadDataServiceImpl implements BadDataService {
@@ -28,36 +30,60 @@ public class BadDataServiceImpl implements BadDataService {
 
     @Override
     @Transactional(readOnly = true)
-    public List<Map<String, Object>> listBadData(String tableName, String column, String ruleJson) {
-        // 1. 解析规则
-        String pattern = parseRuleJson(ruleJson);
-
-        // 2. 白名单校验表名、列名
-        if (!isLegalTableColumn(tableName, column)) {
-            throw new IllegalArgumentException("表名或列名不合法");
+    public List<Map<String, Object>> listBadData(String tableName, List<CheckRequest.ColumnRule> columnRules) {
+        // 1. 白名单校验表名、列名
+        for (CheckRequest.ColumnRule columnRule : columnRules) {
+            if (!isLegalTableColumn(tableName, columnRule.getColumn())) {
+                throw new IllegalArgumentException("表名或列名不合法");
+            }
         }
 
+        // 2. 解析规则JSON，提取正则表达式
+        List<CheckRequest.ColumnRule> parsedColumnRules = columnRules.stream()
+                .map(cr -> {
+                    String pattern = parseRuleJson(cr.getRule());
+                    CheckRequest.ColumnRule newCr = new CheckRequest.ColumnRule();
+                    newCr.setColumn(cr.getColumn());
+                    newCr.setRule(pattern);
+                    return newCr;
+                })
+                .collect(Collectors.toList());
+
         // 3. 查询违规数据
-        return badDataMapper.findBadDataByRegex(tableName, column, pattern);
+        return badDataMapper.findBadDataByMultipleRegex(tableName, parsedColumnRules);
     }
 
     @Override
     public boolean isLegalTableColumn(String table, String col) {
         try (Connection c = dataSource.getConnection()) {
             DatabaseMetaData meta = c.getMetaData();
-            // 校验表是否存在
-            try (ResultSet tabs = meta.getTables(c.getCatalog(), null, table, new String[]{"TABLE"})) {
-                if (!tabs.next()) return false;
+
+            // 1. 忽略大小写找表
+            String realTable = null;
+            try (ResultSet tabs = meta.getTables(c.getCatalog(), null, "%", new String[]{"TABLE"})) {
+                while (tabs.next()) {
+                    String t = tabs.getString("TABLE_NAME");
+                    if (t.equalsIgnoreCase(table)) {
+                        realTable = t;
+                        break;
+                    }
+                }
             }
-            // 校验列是否存在
-            try (ResultSet cols = meta.getColumns(c.getCatalog(), null, table, col)) {
-                return cols.next();
+            if (realTable == null) return false;
+
+            // 2. 忽略大小写找列
+            try (ResultSet cols = meta.getColumns(c.getCatalog(), null, realTable, "%")) {
+                while (cols.next()) {
+                    if (cols.getString("COLUMN_NAME").equalsIgnoreCase(col)) {
+                        return true;
+                    }
+                }
             }
+            return false;
         } catch (Exception e) {
             return false;
         }
     }
-
     @Override
     public String getPrimaryKey(String table) {
         try (Connection c = dataSource.getConnection()) {
